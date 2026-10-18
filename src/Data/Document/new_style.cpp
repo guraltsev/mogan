@@ -173,10 +173,42 @@ cache_file_name_sub (tree t) {
   }
 }
 
+// 样式缓存只按样式名取键，包文件（如 env-math.stem）更新后旧缓存仍被命中，
+// 新增的宏对已缓存的样式不可见。把样式/包文件的最新修改时间与数量并入键，
+// 任一文件变化即得到新的缓存名。每个进程只扫描一次。
+static string
+package_files_stamp () {
+  static bool   done = false;
+  static string stamp= "";
+  if (done) return stamp;
+  done= true;
+
+  url roots   = url ("$TEXMACS_PATH/packages") | url ("$TEXMACS_PATH/styles") |
+                url ("$TEXMACS_HOME_PATH/packages") |
+                url ("$TEXMACS_HOME_PATH/styles");
+  url suffixes= url_wildcard ("*.ts") | url_wildcard ("*.stem");
+  url files=
+      expand (complete (roots * (suffixes | url_wildcard ("*") * suffixes)));
+
+  int newest= 0, count= 0;
+  url iter= files;
+  while (is_or (iter)) {
+    newest= max (newest, last_modified (iter[1]));
+    count++;
+    iter= iter[2];
+  }
+  if (!is_none (iter)) {
+    newest= max (newest, last_modified (iter));
+    count++;
+  }
+  stamp= as_string (newest) * "-" * as_string (count);
+  return stamp;
+}
+
 static string
 cache_file_name (tree t) {
   url tmp= url_temp ("txt");
-  save_string (tmp, cache_file_name_sub (t));
+  save_string (tmp, cache_file_name_sub (t) * "@" * package_files_stamp ());
   return lolly::hash::md5_hexdigest (tmp) * ".scm";
 }
 
