@@ -28,6 +28,10 @@
 #include <moebius/drd/drd_std.hpp>
 #include <moebius/tree_label.hpp>
 
+// 光标移动后刷新 mode/focus 工具栏的静止延迟与连续移动时的最长等待（毫秒）
+#define MENU_ICONS_DELAY ((time_t) 150)
+#define MENU_ICONS_MAX_DELAY ((time_t) 600)
+
 using moebius::drd::set_access_mode;
 using moebius::drd::the_drd;
 using namespace moebius;
@@ -65,8 +69,8 @@ edit_interface_rep::edit_interface_rep ()
       sh_mark (0), pre_edit_skip (false), pre_edit_s (""), pre_edit_mark (0),
       popup_win (), message_l (""), message_r (""), message_expire_time (0),
       last_l (""), last_r (""), menu_focus_path (), menu_need_save (false),
-      progressive_batch_size (50), zoomf (get_zoom (this, buf)),
-      magf (zoomf / std_shrinkf),
+      menu_icons_due (0), menu_icons_since (0), progressive_batch_size (50),
+      zoomf (get_zoom (this, buf)), magf (zoomf / std_shrinkf),
       pixel ((SI) tm_round ((std_shrinkf * PIXEL) / zoomf)),
       zpixel (max ((SI) tm_round (std_shrinkf * PIXEL), pixel)), copy_always (),
       last_x (0), last_y (0), last_t (0), tremble_count (0),
@@ -1032,8 +1036,15 @@ edit_interface_rep::update_menus (int mask) {
     save_user_preferences ();
   }
   // 缓存记录（该类别上次重建时的状态）
-  if ((mask & (ICONS_MODE | ICONS_FOCUS)) == (ICONS_MODE | ICONS_FOCUS))
+  if ((mask & (ICONS_MODE | ICONS_FOCUS)) == (ICONS_MODE | ICONS_FOCUS)) {
     menu_focus_path= focus_get ();
+    menu_focus_tag = "";
+    if (rp <= menu_focus_path) {
+      tree ft= subtree (et, menu_focus_path);
+      if (is_compound (ft)) menu_focus_tag= as_string (L (ft));
+    }
+    menu_icons_due= 0;
+  }
   if (mask & TAB_PAGES) menu_need_save= need_save ();
   bench_end ("update_menus: footer+tail");
   bench_end (bench_task);
@@ -1441,15 +1452,33 @@ edit_interface_rep::apply_changes () {
   if (env_change & THE_MENUS) {
     update_menus (MENU_ALL);
   }
-  else if (env_change & THE_CURSOR) {
-    // 光标移动仅当焦点树身份变化时，轻量刷新 mode/focus 栏；
+  else if (env_change & (THE_CURSOR | THE_TREE)) {
+    // 仅当焦点树身份变化时，轻量刷新 mode/focus 栏；
     // 手写模式拖拽过程中工具栏内容不变，跳过重建
     bool handwriting=
         inside_active_graphics () && as_bool (call ("graphics-handwriting?"));
     path fp= focus_get ();
-    if (!handwriting && fp != menu_focus_path) {
-      menu_focus_path= fp;
-      update_menus (ICONS_MODE | ICONS_FOCUS);
+    // 同一路径上的结构替换（如 Ctrl+Tab 把 equation 换成 equation*）路径不变，
+    // 还需比较焦点节点的标签
+    string tag= "";
+    if (rp <= fp) {
+      tree ft= subtree (et, fp);
+      if (is_compound (ft)) tag= as_string (L (ft));
+    }
+    if (!handwriting && (fp != menu_focus_path || tag != menu_focus_tag)) {
+      if (env_change & THE_TREE) {
+        // 树被修改（输入 $、变体切换等）时立即刷新，保持与焦点同步
+        update_menus (ICONS_MODE | ICONS_FOCUS);
+      }
+      else {
+        // 单纯的光标移动：重建两栏的 scheme 求值在大文档的数学模式下达 50ms
+        // 以上，逐次同步重建会使按键卡顿；改为光标静止后由 animate () 刷新，
+        // 连续移动时最迟 MENU_ICONS_MAX_DELAY 后也会刷新一次
+        time_t now= texmacs_time ();
+        if (menu_icons_due == 0) menu_icons_since= now;
+        menu_icons_due= min (now + MENU_ICONS_DELAY,
+                             menu_icons_since + MENU_ICONS_MAX_DELAY);
+      }
     }
   }
 
@@ -1488,6 +1517,8 @@ edit_interface_rep::apply_changes () {
 void
 edit_interface_rep::animate () {
   time_t now_ms= texmacs_time ();
+  if (menu_icons_due != 0 && now_ms >= menu_icons_due)
+    update_menus (ICONS_MODE | ICONS_FOCUS);
   if (((double) now_ms) >= anim_next) {
     rectangles rs= eb->anim_invalid ();
     invalidate (rs);

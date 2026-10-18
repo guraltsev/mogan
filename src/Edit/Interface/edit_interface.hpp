@@ -55,7 +55,10 @@ protected:
   tree   last_l;                 // last displayed left message
   tree   last_r;                 // last displayed right message
   path   menu_focus_path;        // focus path at last menu/icons refresh
+  string menu_focus_tag;         // label of the focus node at that refresh
   bool   menu_need_save;         // need_save state at last tab-pages refresh
+  time_t menu_icons_due;         // 0 or time at which mode/focus bars refresh
+  time_t menu_icons_since;       // time of the first move not yet refreshed
   double zoomf;                  // the current zoom factor
   double magf;                   // the current magnification factor
   SI     pixel;                  // current size of a pixel on the screen
