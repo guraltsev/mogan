@@ -256,10 +256,40 @@ trim_cell_spaces (tree t) {
   return t;
 }
 
+static bool
+empty_aligned_cell (tree t) {
+  if (is_atomic (t)) return t == "";
+  if (!is_func (t, CONCAT)) return false;
+  for (int i= 0; i < N (t); i++)
+    if (!empty_aligned_cell (t[i])) return false;
+  return true;
+}
+
 static void
 parse_pmatrix (tree& r, tree t, int& i, string lb, string rb, string fm) {
   tree tformat (TFORMAT);
-  if (N (t[i]) == 2 && t[i][0] != "tabular") {
+  // The parser appends '*' to the name when it consumed an optional argument.
+  bool amsmath_block= t[i][0] == "aligned" || t[i][0] == "aligned*" ||
+                      t[i][0] == "gathered" || t[i][0] == "gathered*";
+  if (N (t[i]) == 1 && amsmath_block) {
+    // amsmath's aligned and gathered default to vertical centering on the
+    // math axis.
+    tformat << tree (TWITH, TABLE_VALIGN, "f");
+  }
+  else if (N (t[i]) == 2 && amsmath_block) {
+    // The optional argument of aligned/gathered is its vertical position
+    // relative to the surrounding math.  Keep it on the TeXmacs table, not on
+    // its cells.
+    // LaTeX [t]/[b] align the baseline of the first/last row, which are the
+    // uppercase TeXmacs modes; lowercase t/b are the geometric top/bottom.
+    // [c] (and the default) centers on the math axis, mode "f".
+    tree valign= t[i][1];
+    if (valign == "t") valign= "T";
+    else if (valign == "b") valign= "B";
+    else valign= "f";
+    tformat << tree (TWITH, TABLE_VALIGN, valign);
+  }
+  else if (N (t[i]) == 2 && t[i][0] != "tabular") {
     tformat= parse_matrix_params (t[i][1]);
   }
   else if (N (t[i]) == 2 && t[i][0] == "tabular") {
@@ -372,6 +402,7 @@ parse_pmatrix (tree& r, tree t, int& i, string lb, string rb, string fm) {
     else if (v == tree (END, "vmatrix")) break;
     else if (v == tree (END, "smallmatrix")) break;
     else if (v == tree (END, "aligned")) break;
+    else if (v == tree (END, "gathered")) break;
     else if (v == tree (APPLY, "hline") || is_apply (v, "toprule", 0) ||
              is_apply (v, "midrule", 0) || is_apply (v, "bottomrule", 0)) {
       bool is_booktabs= is_apply (v, "toprule", 0) ||
@@ -487,6 +518,25 @@ parse_pmatrix (tree& r, tree t, int& i, string lb, string rb, string fm) {
       else R << tree (CELL, "");
     M << R;
   }
+  if (fm == "aligned") {
+    // An ampersand can create a leading or trailing column which is empty in
+    // every row.  It is an alignment marker, not visible table content, so
+    // remove both its forced width and its cell padding.  Do not collapse a
+    // merely empty cell: its column may contain the alignment anchor in a
+    // different row.
+    for (x= 0; x < cols; x++) {
+      bool empty_column= true;
+      for (y= 0; y < rows; y++)
+        empty_column= empty_column && empty_aligned_cell (M[y][x][0]);
+      if (empty_column) {
+        string col= as_string (x + 1);
+        tformat << tree (CWITH, "1", "-1", col, col, CELL_HMODE, "exact");
+        tformat << tree (CWITH, "1", "-1", col, col, CELL_WIDTH, "0spc");
+        tformat << tree (CWITH, "1", "-1", col, col, CELL_LSEP, "0spc");
+        tformat << tree (CWITH, "1", "-1", col, col, CELL_RSEP, "0spc");
+      }
+    }
+  }
   tformat << trim_cell_spaces (M);
   if (is_three_line_table) {
     r << compound ("three-line-table", tformat);
@@ -514,8 +564,14 @@ finalize_pmatrix (tree t) {
                  u[i][0] == "tabularx" || u[i][0] == "tabularx*")
           parse_pmatrix (r, u, i, "", "", "tabular*");
         else if (u[i][0] == "cases") parse_pmatrix (r, u, i, "", "", "choice");
-        else if (u[i][0] == "aligned")
-          parse_pmatrix (r, u, i, "", "", "tabular*");
+        else if (u[i][0] == "aligned" || u[i][0] == "aligned*")
+          // Do not flatten amsmath's aligned into a generic tabular*.  The
+          // native aligned macro has the alternating right/left column
+          // layout and zero outer cell padding required for a leading or
+          // trailing '&' to have no visible width of its own.
+          parse_pmatrix (r, u, i, "", "", "aligned");
+        else if (u[i][0] == "gathered" || u[i][0] == "gathered*")
+          parse_pmatrix (r, u, i, "", "", "gathered");
         else if (u[i][0] == "stack") parse_pmatrix (r, u, i, "", "", "stack");
         else if (u[i][0] == "subarray")
           parse_pmatrix (r, u, i, "", "", "stack");
@@ -923,6 +979,11 @@ finalize_layout (tree t) {
         }
 
         if (v == tree (BEGIN, "displaymath")) v= tree (BEGIN, "equation*");
+        // The parser adds '*' to a command label when it consumed an optional
+        // argument.  Unlike the real starred environments, amsmath has no
+        // aligned* environment, so normalize this internal marker here.
+        if (v[0] == "aligned*") v[0]= "aligned";
+        if (v[0] == "gathered*") v[0]= "gathered";
         if (v == tree (BEGIN, "math")) {
           r << tree (SET, MODE, "math");
           spc_flag= item_flag= false;

@@ -83,6 +83,8 @@
 
   (begin-align "amsmath")
   (begin-align* "amsmath")
+  (begin-aligned "amsmath")
+  (begin-gathered "amsmath")
   (begin-alignat "amsmath")
   (begin-alignat* "amsmath")
   (begin-xalignat "amsmath")

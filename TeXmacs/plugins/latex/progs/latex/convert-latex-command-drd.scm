@@ -454,8 +454,8 @@
 ) ;logic-group
 
 (logic-group latex-environment-0*% begin-figure begin-table begin-figure*
-  begin-table* begin-algorithmic begin-algorithm begin-algorithm2e
-  begin-teaserfigure
+  begin-table* begin-aligned begin-gathered begin-algorithmic begin-algorithm
+  begin-algorithm2e begin-teaserfigure
 ) ;logic-group
 
 (logic-group latex-environment-1% begin-otherlanguage begin-otherlanguage*
