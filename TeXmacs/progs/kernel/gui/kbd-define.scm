@@ -128,6 +128,16 @@
 
 (define kbd-rev-table (make-ahash-table))
 
+;; 用户层：key -> 用户通过 user-kbd-map 注册的条件列表。
+;; 不变量：map 表每个 key 的条目里，用户层条目恒在内置层之前；内置注册既不会
+;; 覆盖也不会越过同条件的用户条目，与内置模块加载的先后无关。
+
+(define kbd-user-table (make-ahash-table))
+
+;; user-kbd-unmap 写入的墓碑，屏蔽同条件的内置绑定；有墓碑时查表走慢路径
+
+(define kbd-has-tombstones? #f)
+
 (define (kbd-set-map! key im)
   (ahash-set! kbd-map-table key im)
 ) ;define
@@ -279,17 +289,61 @@
   (if (nlist? l) (list) (list-difference l (list x)))
 ) ;define
 
-(define (kbd-insert-key-binding conds key im)
+(define (kbd-tombstone? im)
+  (and (pair? im) (eq? (car im) 'kbd-unmapped))
+) ;define
+
+(define (kbd-user-conds key)
+  (or (ahash-ref kbd-user-table key) '())
+) ;define
+
+(define (kbd-forget-user-conds! key conds)
+  (ahash-set! kbd-user-table
+    key
+    (list-difference (kbd-user-conds key) (list conds))
+  ) ;ahash-set!
+) ;define
+
+;; 内置条目插在所有用户条目之后，保持用户层在前的不变量
+
+(define (kbd-ctx-insert-builtin ctx im conds key)
+  (let ((users (kbd-user-conds key)))
+    (let loop
+      ((l (or ctx '())) (front '()))
+      (if (and (pair? l) (member (caar l) users))
+        (loop (cdr l) (cons (car l) front))
+        (append (reverse front) (cons (cons conds im) l))
+      ) ;if
+    ) ;let
+  ) ;let
+) ;define
+
+(define (kbd-register-binding conds key im insert)
   (let* ((com (kbd-source (car im))) (cmd (if (string? com) com (object->string com))))
     ;; (display* "Binding '" key "' when " conds " to " com "\n")
     (kbd-delete-key-binding2 conds key)
-    (kbd-set-map! key (ctx-insert (kbd-get-map key) im conds))
-    (kbd-set-inv! com (ctx-insert (kbd-get-inv com) key conds))
-    (kbd-set-rev! cmd (simple-insert (kbd-get-rev cmd) key))
-    ;; (display* key " > " (kbd-get-map key) "\n")
-    ;; (display* com " < " (kbd-get-inv com) "\n")
-    ;; (display* cmd " < " (kbd-get-rev cmd) "\n")
+    (kbd-set-map! key (insert (kbd-get-map key)))
+    (when (not (kbd-tombstone? im))
+      (kbd-set-inv! com (ctx-insert (kbd-get-inv com) key conds))
+      (kbd-set-rev! cmd (simple-insert (kbd-get-rev cmd) key))
+    ) ;when
   ) ;let*
+) ;define
+
+(define (kbd-insert-key-binding conds key im)
+  ;; 同条件的用户绑定优先：内置注册直接让位
+  (when (not (member conds (kbd-user-conds key)))
+    (kbd-register-binding conds
+      key
+      im
+      (lambda (ctx) (kbd-ctx-insert-builtin ctx im conds key))
+    ) ;kbd-register-binding
+  ) ;when
+) ;define
+
+(define (kbd-insert-user-key-binding conds key im)
+  (kbd-register-binding conds key im (lambda (ctx) (ctx-insert ctx im conds)))
+  (ahash-set! kbd-user-table key (cons conds (kbd-user-conds key)))
 ) ;define
 
 (tm-define (kbd-delete-key-binding2 conds key)
@@ -299,12 +353,34 @@
     (if im
       (let* ((com (kbd-source (car im))) (cmd (object->string com)))
         (kbd-set-map! key (ctx-remove (kbd-get-map key) conds))
-        (kbd-set-inv! com (ctx-remove (kbd-get-inv com) conds))
-        (kbd-set-rev! cmd (simple-remove (kbd-get-inv cmd) key))
+        (when (not (kbd-tombstone? im))
+          (kbd-set-inv! com (ctx-remove (kbd-get-inv com) conds))
+          (kbd-set-rev! cmd (simple-remove (kbd-get-inv cmd) key))
+        ) ;when
+        (kbd-forget-user-conds! key conds)
       ) ;let*
     ) ;if
   ) ;with
 ) ;tm-define
+
+;; 无墓碑时与原 ctx-resolve 完全一致（按键热路径）；有墓碑时跳过墓碑条目，
+;; 墓碑只屏蔽同条件的内置绑定，其余条件的条目照常回退
+
+(define (kbd-resolve-map ctx)
+  (if (not kbd-has-tombstones?)
+    (ctx-resolve ctx #f)
+    (let loop
+      ((l (or ctx '())))
+      (if (null? l)
+        #f
+        (with r
+          (ctx-resolve (list (car l)) #f)
+          (if (or (not r) (kbd-tombstone? r)) (loop (cdr l)) r)
+        ) ;with
+      ) ;if
+    ) ;let
+  ) ;if
+) ;define
 
 (tm-define (kbd-find-key-binding key)
   (:synopsis "Find the command associated to the keystroke @key")
@@ -312,7 +388,7 @@
   (lazy-keyboard-force)
   ;; 按键是正确性关键路径：查表前必须 drain 在途 delayed 批次
   (kbd-flush-pending)
-  (ctx-resolve (kbd-get-map key) #f)
+  (kbd-resolve-map (kbd-get-map key))
 ) ;tm-define
 
 (tm-define (kbd-find-inv-binding com)
@@ -485,7 +561,7 @@
   ) ;cond
 ) ;define
 
-(define (kbd-map-one conds l)
+(define (kbd-map-one* binder conds l)
   (if
     (not (and (pair? l) (string? (car l)) (pair? (cdr l))))
     (texmacs-error "kbd-map-pre-one" "Bad keymap in: ~S" l)
@@ -495,24 +571,35 @@
     (if (string? action)
       (with help
         (if (null? opt) "" (car opt))
-        `(kbd-binding (list ,@conds) ,key ,action ,help)
+        `(,binder (list ,@conds) ,key ,action ,help)
       ) ;with
-      `(kbd-binding (list ,@conds) ,key (lambda ,() ,action ,@opt) "")
+      `(,binder (list ,@conds) ,key (lambda ,() ,action ,@opt) "")
     ) ;if
   ) ;with
 ) ;define
 
-(define (kbd-map-body conds l)
+(define (kbd-map-one conds l)
+  (kbd-map-one* 'kbd-binding conds l)
+) ;define
+
+(define (kbd-map-body* binder conds l)
   (cond ((null? l) '())
-        ((symbol? (car l)) (kbd-map-body (list 0 (car l)) (cdr l)))
+        ((symbol? (car l)) (kbd-map-body* binder (list 0 (car l)) (cdr l)))
         ((and (pair? (car l)) (== (caar l) :profile))
-         (if (not (has-look-and-feel? (cdar l))) '((noop)) (kbd-map-body conds (cdr l)))
+         (if (not (has-look-and-feel? (cdar l)))
+           '((noop))
+           (kbd-map-body* binder conds (cdr l))
+         ) ;if
         ) ;
         ((and (pair? (car l)) (keyword? (caar l)))
-         (kbd-map-body (kbd-add-condition conds (car l)) (cdr l))
+         (kbd-map-body* binder (kbd-add-condition conds (car l)) (cdr l))
         ) ;
-        (else (map (lambda (x) (kbd-map-one conds x)) l))
+        (else (map (lambda (x) (kbd-map-one* binder conds x)) l))
   ) ;cond
+) ;define
+
+(define (kbd-map-body conds l)
+  (kbd-map-body* 'kbd-binding conds l)
 ) ;define
 
 (tm-define-macro (kbd-map . l)
@@ -579,23 +666,131 @@
                           (utf8-kbd-map-body '() l))))
 ) ;tm-define-macro
 
-(define (kbd-remove-one conds key)
-  `(kbd-delete-key-binding2 (list ,@conds) ,key)
+(define (kbd-remove-body* remover conds l)
+  (cond ((null? l) '())
+        ((symbol? (car l)) (kbd-remove-body* remover (list 0 (car l)) (cdr l)))
+        ((and (pair? (car l)) (keyword? (caar l)))
+         (kbd-remove-body* remover (kbd-add-condition conds (car l)) (cdr l))
+        ) ;
+        (else
+          (map
+            (lambda (x) `(,remover (list ,@conds) ,x))
+            l
+          ) ;map
+        ) ;else
+  ) ;cond
 ) ;define
 
 (define (kbd-remove-body conds l)
-  (cond ((null? l) '())
-        ((symbol? (car l)) (kbd-remove-body (list 0 (car l)) (cdr l)))
-        ((and (pair? (car l)) (keyword? (caar l)))
-         (kbd-remove-body (kbd-add-condition conds (car l)) (cdr l))
-        ) ;
-        (else (map (lambda (x) (kbd-remove-one conds x)) l))
-  ) ;cond
+  (kbd-remove-body* 'kbd-delete-key-binding2 conds l)
 ) ;define
 
 (tm-define-macro (kbd-unmap . l)
   (:synopsis "Remove entries in @l from keyboard mapping")
   `(begin ,@(kbd-remove-body '() l))
+) ;tm-define-macro
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; User keyboard bindings
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; user-kbd-map / user-kbd-unmap 供用户 init 文件与快捷键编辑器使用，注册进
+;; “用户层”：优先级恒高于 kbd-map 注册的内置绑定，不论内置模块何时（懒）加载。
+
+(define (kbd-ascii-string? s)
+  (let loop
+    ((i 0))
+    (or (>= i (string-length s))
+      (and (< (char->integer (string-ref s i)) 128) (loop (+ i 1)))
+    ) ;or
+  ) ;let
+) ;define
+
+;; 与 C++ handle_keypress 一致：单个具名符号 <alpha> 以裸名 alpha 到达 Scheme，
+;; <#...> 形式保留尖括号
+
+(define (kbd-named-symbol? c)
+  (let ((n (string-length c)))
+    (and (> n 2)
+      (char=? (string-ref c 0) #\<)
+      (char=? (string-ref c (- n 1)) #\>)
+      (not (char=? (string-ref c 1) #\#))
+      (let loop
+        ((i 1))
+        (or (>= i (- n 1))
+          (and (not (memv (string-ref c i) '(#\< #\>))) (loop (+ i 1)))
+        ) ;or
+      ) ;let
+    ) ;and
+  ) ;let
+) ;define
+
+(define (user-kbd-token tok)
+  (if (kbd-ascii-string? tok)
+    tok
+    (let ((c (string-convert tok "UTF-8" "Cork")))
+      (if (kbd-named-symbol? c) (substring c 1 (- (string-length c) 1)) c)
+    ) ;let
+  ) ;if
+) ;define
+
+(define (kbd-split-spaces s)
+  (let loop
+    ((i 0) (start 0) (acc '()))
+    (cond
+     ((= i (string-length s)) (reverse (cons (substring s start i) acc)))
+     ((char=? (string-ref s i) #\space)
+      (loop (+ i 1) (+ i 1) (cons (substring s start i) acc))
+     ) ;
+     (else (loop (+ i 1) start acc))
+    ) ;cond
+  ) ;let
+) ;define
+
+(define (kbd-join-spaces l)
+  (if (null? l)
+    ""
+    (let loop
+      ((r (car l)) (rest (cdr l)))
+      (if (null? rest) r (loop (string-append r " " (car rest)) (cdr rest)))
+    ) ;let
+  ) ;if
+) ;define
+
+(tm-define (user-kbd-key s)
+  (:synopsis "Normalize a key spec: literal non-ASCII keys become the key names")
+  (if (kbd-ascii-string? s)
+    s
+    (kbd-join-spaces (map user-kbd-token (kbd-split-spaces s)))
+  ) ;if
+) ;tm-define
+
+(tm-define (user-kbd-binding conds key2 cmd help)
+  (:synopsis "Helper routine for user-kbd-map macro")
+  (with key
+    (kbd-pre-rewrite (user-kbd-key key2))
+    (kbd-sub-bindings conds key)
+    (kbd-insert-user-key-binding conds key (list cmd help))
+  ) ;with
+) ;tm-define
+
+(tm-define (user-kbd-unbinding conds key2)
+  (:synopsis "Helper routine for user-kbd-unmap macro")
+  (with key
+    (kbd-pre-rewrite (user-kbd-key key2))
+    (set! kbd-has-tombstones? #t)
+    (kbd-insert-user-key-binding conds key (list 'kbd-unmapped ""))
+  ) ;with
+) ;tm-define
+
+(tm-define-macro (user-kbd-map . l)
+  (:synopsis "Like kbd-map, but the bindings take precedence over built-in ones")
+  `(begin ,@(kbd-map-body* 'user-kbd-binding '() l))
+) ;tm-define-macro
+
+(tm-define-macro (user-kbd-unmap . l)
+  (:synopsis "Like kbd-unmap, but also hides built-in bindings loaded later")
+  `(begin ,@(kbd-remove-body* 'user-kbd-unbinding '() l))
 ) ;tm-define-macro
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

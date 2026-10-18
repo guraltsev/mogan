@@ -60,9 +60,72 @@
   (check (kbd-find-key-binding "T17e x y") => (list "EEE" ""))
 ) ;define
 
+(define (test-user-beats-later-builtin)
+  ;; 内置模块后加载（lazy）也不能覆盖同键同条件的用户绑定
+  (user-kbd-map ("T20a" "USER"))
+  (kbd-map ("T20a" "BUILTIN"))
+  (check (kbd-find-key-binding "T20a") => (list "USER" ""))
+) ;define
+
+(define (test-user-beats-earlier-builtin)
+  (kbd-map ("T20b" "BUILTIN"))
+  (user-kbd-map ("T20b" "USER"))
+  (check (kbd-find-key-binding "T20b") => (list "USER" ""))
+) ;define
+
+(define (test-user-beats-later-builtin-other-conds)
+  ;; 用户带条件、后加载的内置无条件：按最近优先本会选内置，分层后仍选用户
+  (user-kbd-map (:require #t) ("T20c" "USER"))
+  (kbd-map ("T20c" "BUILTIN"))
+  (check (kbd-find-key-binding "T20c") => (list "USER" ""))
+) ;define
+
+(define (test-builtin-fallback-when-user-condition-fails)
+  (user-kbd-map (:require #f) ("T20d" "USER"))
+  (kbd-map ("T20d" "BUILTIN"))
+  (check (kbd-find-key-binding "T20d") => (list "BUILTIN" ""))
+) ;define
+
+(define (test-unmap-masks-later-builtin)
+  (kbd-map ("T20e" "BUILTIN"))
+  (user-kbd-unmap "T20e")
+  (check (kbd-find-key-binding "T20e") => #f)
+  (kbd-map ("T20e" "LATER"))
+  (check (kbd-find-key-binding "T20e") => #f)
+) ;define
+
+(define (test-unmap-keeps-other-conditions)
+  (kbd-map (:require #t) ("T20f" "OTHER"))
+  (kbd-map ("T20f" "PLAIN"))
+  (user-kbd-unmap "T20f")
+  (check (kbd-find-key-binding "T20f") => (list "OTHER" ""))
+) ;define
+
+(define (test-user-key-normalization)
+  (check (user-kbd-key "A-x") => "A-x")
+  (check (user-kbd-key "` <") => "` <")
+  (check (user-kbd-key "α") => "alpha")
+  (check (user-kbd-key "` α") => "` alpha")
+  (check (user-kbd-key "￥") => "<#FFE5>")
+) ;define
+
+(define (test-user-literal-unicode-key)
+  ;; 字面 α 与具名 alpha 落到同一个键（C++ 侧到达 Scheme 的就是 alpha）
+  (user-kbd-map ("α" "ALPHA"))
+  (check (kbd-find-key-binding "alpha") => (list "ALPHA" ""))
+) ;define
+
+(define (test-user-multi-key-sequence)
+  (user-kbd-map ("T20g x y" "GGG"))
+  (check (kbd-find-key-binding "T20g x y") => (list "GGG" ""))
+) ;define
+
 (define (cleanup)
   ;; kbd-unmap 的条目是裸按键字符串;"T17e"/"T17e x" 是多键序列的中间回显绑定
   (kbd-unmap "T17a" "T17b" "T17c" "T17d" "T17e" "T17e x" "T17e x y")
+  (kbd-unmap "T20a" "T20b" "T20c" "T20d" "T20e" "T20f" "T20g" "T20g x"
+    "T20g x y" "alpha"
+  ) ;kbd-unmap
 ) ;define
 
 (tm-define (regtest-kbd-define)
@@ -72,6 +135,15 @@
   (test-override-after-delayed)
   (test-override-before-delayed)
   (test-multi-key-sequence)
+  (test-user-beats-later-builtin)
+  (test-user-beats-earlier-builtin)
+  (test-user-beats-later-builtin-other-conds)
+  (test-builtin-fallback-when-user-condition-fails)
+  (test-unmap-masks-later-builtin)
+  (test-unmap-keeps-other-conditions)
+  (test-user-key-normalization)
+  (test-user-literal-unicode-key)
+  (test-user-multi-key-sequence)
   (cleanup)
   (check-report)
 ) ;tm-define
