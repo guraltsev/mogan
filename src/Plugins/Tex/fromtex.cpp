@@ -2447,7 +2447,8 @@ latex_command_to_tree (tree t) {
     string s;
     if (is_atomic (t[1])) s= t[1]->label;
     else s= t[1][0]->label;
-    if ((N (s) > 1) && (s[0] == '\\')) s= s (1, N (s));
+    if (s == "\\|") s= "||";
+    else if ((N (s) > 1) && (s[0] == '\\')) s= s (1, N (s));
     if (s == "vert" || s == "arrowvert") s= "|";
     if (s == "Vert" || s == "Arrowvert") s= "||";
     if (s == "lbrace") s= "{";
