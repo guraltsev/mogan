@@ -355,13 +355,7 @@
   (tabular ("" "l" "" #f))
   (tabular* ("" "c" "" #f))
   (wide-tabular ("{\\noindent}" "@{}X@{}" "" #f))
-  (matrix
-   ((,(string->symbol "left(")) "c" (,(string->symbol "right)")) #f)
-  ) ;matrix
   (det ((left|) "c" (right|) #f))
-  (bmatrix
-   ((,(string->symbol "left[")) "c" (,(string->symbol "right]")) #f)
-  ) ;bmatrix
   (stack ("" "c" "" #f))
   (choice ((left\{) "l" (right.) #f))
   (tabbed ("" "l" "" #f))
@@ -2105,7 +2099,8 @@
       ) ;let*
       (begin
         (list
-          `(!begin ,(symbol->string key) ,@args)
+          ;; Mogan's matrix is parenthesised, i.e. amsmath's pmatrix.
+          `(!begin ,(if (== key 'matrix) "pmatrix" (symbol->string key)) ,@args)
           (if (== key 'three-line-table)
             (tmtex-three-line-table-make
               (tmtable-parser

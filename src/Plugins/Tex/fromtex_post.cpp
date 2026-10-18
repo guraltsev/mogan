@@ -344,7 +344,7 @@ parse_pmatrix (tree& r, tree t, int& i, string lb, string rb, string fm) {
       break;
     }
     else if (v == tree (BEGIN, "bmatrix")) {
-      parse_pmatrix (E, t, i, "[", "]", "tabular*");
+      parse_pmatrix (E, t, i, "", "", "bmatrix");
       if (i < N (t)) continue;
       break;
     }
@@ -524,7 +524,7 @@ finalize_pmatrix (tree t) {
         else if (u[i][0] == "pmatrix")
           parse_pmatrix (r, u, i, "", "", "matrix");
         else if (u[i][0] == "bmatrix")
-          parse_pmatrix (r, u, i, "[", "]", "tabular*");
+          parse_pmatrix (r, u, i, "", "", "bmatrix");
         else if (u[i][0] == "vmatrix") parse_pmatrix (r, u, i, "", "", "det");
         else if (u[i][0] == "smallmatrix")
           parse_pmatrix (r, u, i, "", "", "matrix*");
