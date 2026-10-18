@@ -159,6 +159,9 @@
 ) ;define-public
 (define-public (pref-convert-latex-indirect-bib) "texmacs->latex:indirect-bib")
 (define-public (pref-convert-latex-use-macros) "texmacs->latex:use-macros")
+(define-public (pref-convert-latex-protect-nested-bars)
+  "texmacs->latex:protect-nested-bars"
+) ;define-public
 (define-public (pref-convert-latex-encoding) "texmacs->latex:encoding")
 (define-public (pref-convert-latex-attach-tracking-info)
   "texmacs->latex:attach-tracking-info"

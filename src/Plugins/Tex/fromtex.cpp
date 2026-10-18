@@ -1222,6 +1222,46 @@ latex_key_arg (tree t) {
   return r;
 }
 
+static bool
+is_bar_token (tree t) {
+  return is_tuple (t, "\\|", 0) || is_tuple (t, "\\Vert", 0) ||
+         is_tuple (t, "\\vert", 0) || t == "|";
+}
+
+static int
+skip_math_spaces (tree t, int k) {
+  while (k < N (t) && t[k] == " ")
+    k++;
+  return k;
+}
+
+/**
+ * @brief 识别数学模式下 `<bar> { ... } <same bar>` 的写法。
+ * @param t 待转换的 LaTeX 并列树
+ * @param i 起始竖线的位置
+ * @param group_begin 括号组起始标记 \begingroup 的位置
+ * @param group_end 括号组结束标记 \endgroup 的位置
+ * @param close 结尾竖线的位置
+ * @note 范数和绝对值的嵌套如 \|\|f\|\| 有歧义，花括号给出了明确的配对。
+ */
+static bool
+match_braced_bar_pair (tree t, int i, int& group_begin, int& group_end,
+                       int& close) {
+  int n      = N (t);
+  group_begin= skip_math_spaces (t, i + 1);
+  if (group_begin >= n || !is_tuple (t[group_begin], "\\begingroup", 0))
+    return false;
+  int depth= 1, k= group_begin + 1;
+  for (; k < n && depth > 0; k++) {
+    if (is_tuple (t[k], "\\begingroup", 0)) depth++;
+    else if (is_tuple (t[k], "\\endgroup", 0)) depth--;
+  }
+  if (depth != 0) return false;
+  group_end= k - 1;
+  close    = skip_math_spaces (t, k);
+  return close < n && t[close] == t[i];
+}
+
 tree
 latex_concat_to_tree (tree t, bool& new_flag) {
   int  i, n= N (t);
@@ -1252,6 +1292,27 @@ latex_concat_to_tree (tree t, bool& new_flag) {
     if (is_atomic (t[i]) && (command_type["!verbatim"] == "true")) {
       r << tm_encode (t[i]->label);
       continue;
+    }
+
+    if (command_type["!mode"] == "math" && is_bar_token (t[i])) {
+      int group_begin, group_end, close;
+      if (match_braced_bar_pair (t, i, group_begin, group_end, close)) {
+        tree open= l2e (t[i]);
+        if (is_atomic (open)) {
+          // 保持嵌套结构：组内的竖线只在组内配对
+          tree inner (CONCAT);
+          for (int k= group_begin + 1; k < group_end; k++)
+            inner << t[k];
+          bool inner_flag= false;
+          tree body      = latex_concat_to_tree (inner, inner_flag);
+          // 嵌套后的组内容不会被后续的整体括号匹配处理，这里先在组内配对
+          body= upgrade_brackets (body, "math");
+          r << tree (AROUND, copy (open), body, copy (open));
+          new_flag= false;
+          i       = close;
+          continue;
+        }
+      }
     }
 
     bool operator_flag= is_tuple (t[i]) && (N (t[i]) == 1) &&
