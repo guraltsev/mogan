@@ -129,7 +129,7 @@
 ) ;tm-define
 
 (tm-define (kbd-enter t shift?)
-  (:require (tree-is? t 'aligned))
+  (:require (and (tree-is? t 'aligned) (not (table-markup-context? t))))
   (let* ((c (tree-ref t 0))
          (l0 (concat-decompose c))
          (l2 (list-scatter l0 binary-relation? #t))
