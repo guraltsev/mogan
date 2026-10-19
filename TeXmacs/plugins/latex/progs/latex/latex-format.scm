@@ -194,6 +194,7 @@
   (:option "texmacs->latex:expand-user-macros" "off")
   (:option "texmacs->latex:indirect-bib" "off")
   (:option "texmacs->latex:use-macros" "off")
+  (:option "texmacs->latex:protect-nested-bars" "on")
   (:option "texmacs->latex:encoding" "UTF-8")
 ) ;converter
 
@@ -218,6 +219,7 @@
   (:option "texmacs->latex:expand-user-macros" "off")
   (:option "texmacs->latex:indirect-bib" "off")
   (:option "texmacs->latex:use-macros" "on")
+  (:option "texmacs->latex:protect-nested-bars" "on")
   (:option "texmacs->latex:encoding" "UTF-8")
 ) ;converter
 

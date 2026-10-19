@@ -1563,6 +1563,48 @@
 ;; Mathematics
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; Nested pairs of the same bar are ambiguous in LaTeX: \|\|f\|_q\|_p is read as
+;; two empty-looking pairs, not as a norm of a norm.  Wrap the content of the
+;; outer pair in a brace group: \|{\|f\|_q}\|_p.
+
+(define (bar-delimiter? s)
+  (and (string? s) (in? s '("|" "||" "<||>")))
+) ;define
+
+(define (contains-around-of? t open)
+  (cond ((not (pair? t)) #f)
+        ((and (func? t 'around) (>= (length t) 2) (== (cadr t) open)) #t)
+        (else (list-or (map (cut contains-around-of? <> open) (cdr t))))
+  ) ;cond
+) ;define
+
+(define (tmtex-brace-group s l)
+  (list '!group (tmtex (car l)))
+) ;define
+
+(define (protect-around x)
+  (if (and (func? x 'around)
+        (== (length x) 4)
+        (bar-delimiter? (cadr x))
+        (== (cadr x) (cadddr x))
+        (contains-around-of? (caddr x) (cadr x))
+      ) ;and
+    `(around ,(cadr x) (tmtex-brace-group ,(caddr x)) ,(cadddr x))
+    x
+  ) ;if
+) ;define
+
+;; Must run before tmtm-match-brackets, which turns every around into plain
+;; delimiter symbols and so loses the structure.
+(tm-define (tmtex-protect-nested-bars x)
+  (cond ((nlist? x) x)
+        ((null? x) x)
+        (else
+          (protect-around (cons (car x) (map tmtex-protect-nested-bars (cdr x))))
+        ) ;else
+  ) ;cond
+) ;tm-define
+
 (define (convert-around x)
   (with d (downgrade-brackets x) (tmtex-concat (if (pair? d) (cdr d) (list d))))
 ) ;define
@@ -4411,6 +4453,7 @@
  (math-and (,tmtex-mathbin 1))
  (math-not (,tmtex-mathord 1))
  (math-relation (,tmtex-mathrel 1))
+ (tmtex-brace-group (,tmtex-brace-group 1))
  (math-union (,tmtex-mathbin 1))
  (math-intersection (,tmtex-mathbin 1))
  (math-exclude (,tmtex-mathbin 1))
@@ -4874,7 +4917,12 @@
         result
       ) ;with
     ) ;let*
-    (let* ((x2 (tree->stree (tmtm-eqnumber->nonumber (stree->tree x))))
+    (let* ((x1 (if (!= (assoc-ref opts "texmacs->latex:protect-nested-bars") "off")
+                 (tmtex-protect-nested-bars x)
+                 x
+               ) ;if
+           ) ;x1
+           (x2 (tree->stree (tmtm-eqnumber->nonumber (stree->tree x1))))
            (x3 (tmtm-match-brackets x2))
           ) ;
       (tmtex-initialize opts)

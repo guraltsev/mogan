@@ -752,6 +752,12 @@
       '()
       #f
     ) ;list
+    (list (pref-convert-latex-protect-nested-bars)
+      "Group nested norms and absolute values with braces"
+      '()
+      '()
+      #f
+    ) ;list
     (list (pref-convert-latex-encoding)
       "Character encoding"
       '("utf-8" "cork")
