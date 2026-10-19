@@ -27,9 +27,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-group variant-tag (math-table-tag))
+(define-group variant-tag (aligned-block-tag))
 (define-group similar-tag (math-table-tag))
 
 (define-group math-table-tag matrix det bmatrix Bmatrix)
+(define-group aligned-block-tag gathered aligned)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Spaces

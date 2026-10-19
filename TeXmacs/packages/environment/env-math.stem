@@ -258,6 +258,22 @@
         ) ;macro
       ) ;assign
       (assign "aligned" (macro "body" (document (aligned* (tformat (arg "body"))))))
+      (assign "gathered"
+        (macro "body"
+          (document (math-table-base (tformat (twith "table-min-cols" "1")
+                                       (twith "table-max-cols" "1")
+                                       (cwith "1" "-1" "1" "-1" "cell-lsep" "0spc")
+                                       (cwith "1" "-1" "1" "-1" "cell-rsep" "0spc")
+                                       (cwith "1" "-1" "1" "-1" "cell-bsep" "0.1fn")
+                                       (cwith "1" "-1" "1" "-1" "cell-tsep" "0.1fn")
+                                       (cwith "1" "-1" "1" "-1" "cell-halign" "c")
+                                       (cwith "1" "-1" "1" "-1" "cell-block" "no")
+                                       (arg "body")
+                                     ) ;tformat
+                    ) ;math-table-base
+          ) ;document
+        ) ;macro
+      ) ;assign
       (assign "alignedat*"
         (macro "ncol" "body" (document (aligned* (tformat (arg "body")))))
       ) ;assign
