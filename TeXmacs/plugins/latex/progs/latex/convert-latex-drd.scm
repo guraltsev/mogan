@@ -82,6 +82,9 @@
   (substack "mathtools")
 
   (begin-align "amsmath")
+  (begin-pmatrix "amsmath")
+  (begin-bmatrix "amsmath")
+  (begin-Bmatrix "amsmath")
   (begin-align* "amsmath")
   (begin-aligned "amsmath")
   (begin-gathered "amsmath")
