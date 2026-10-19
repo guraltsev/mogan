@@ -119,7 +119,7 @@
 ) ;define
 
 (define (apply-user-shortcut sh cmd)
-  (and-with val (string->object cmd) (eval `(kbd-map (,sh ,val))))
+  (and-with val (string->object cmd) (eval `(user-kbd-map (,sh ,val))))
 ) ;define
 
 (define (unapply-user-shortcut sh)
